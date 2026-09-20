@@ -112,6 +112,11 @@ function messageOf(failure) {
   return failure && typeof failure.message === "string" ? failure.message : "";
 }
 
+function codeOf(failure) {
+  if (!failure || typeof failure.code !== "string" || failure.code.trim() === "") return "UNKNOWN";
+  return failure.code.trim().toUpperCase();
+}
+
 function isModelAvailabilityFailure(failure, code) {
   if (typeof code === "string" && MODEL_AVAILABILITY_CODES.has(code.toUpperCase())) return true;
   if (typeof code !== "string" || code.toUpperCase() !== "PI_AI_ERROR") return false;
@@ -287,7 +292,10 @@ export function apply(ctx, config = {}) {
 
     const handleRequestError = async (payload, next) => {
       const { agent, turn, step, provider, failure, signal } = payload;
-      const code = failure && typeof failure.code === "string" ? failure.code : "UNKNOWN";
+      // DSH codes are conventionally uppercase, but adapters are allowed to
+      // supply strings. Normalize once so lowercase permanent or quota codes
+      // cannot fall through to the indefinite unknown-error policy.
+      const code = codeOf(failure);
       const message = messageOf(failure);
 
       if (!alive || signal?.aborted) return next();
@@ -333,7 +341,8 @@ export function apply(ctx, config = {}) {
         ? retryPrior.retryId
         : nextRetryId();
       const maxDelayMs = live.maxDelayMs;
-      const waitMs = providerRetryAfter(failure) ?? backoffDelay(retry, maxDelayMs);
+      const localDelayMs = backoffDelay(retry, maxDelayMs);
+      const waitMs = Math.max(localDelayMs, providerRetryAfter(failure) ?? 0);
       const retryMode = retryPolicyForRequest.mode;
 
       agent.session.append("llm/retry", {

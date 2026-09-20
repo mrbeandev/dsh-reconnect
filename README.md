@@ -3,6 +3,9 @@
 Safe model-request retry for DeepSeek Harness with exponential backoff,
 relay/proxy recovery, and an integrated settings panel.
 
+- **Source code:** [github.com/mrbeandev/dsh-reconnect](https://github.com/mrbeandev/dsh-reconnect)
+- **npm package:** [npmjs.com/package/dsh-reconnect](https://www.npmjs.com/package/dsh-reconnect)
+
 ## Overview
 
 `dsh-reconnect` retries recoverable model requests so temporary network,
@@ -74,12 +77,27 @@ Provider `Retry-After` value or the total retry duration.
 
 ## Installation
 
-### npm
+### npm (recommended)
 
-After the package is published to npm:
+Install and activate the package in the DSH web profile:
 
 ```sh
 dsh plugin --profile web add dsh-reconnect
+```
+
+Then restart the running DSH web process. Open **Settings → Plugins → Plugin
+configuration → ReConnect automatic retry** to confirm that the plugin and its
+settings card are active.
+
+The `dsh plugin` command forwards to the profile package manager. Because this
+package declares a `dsh.bundle` patch, DSH also adds it to the selected profile's
+active bundle list; no manual `cordis.yml` edit is needed.
+
+To update or remove it later:
+
+```sh
+dsh plugin --profile web update dsh-reconnect
+dsh plugin --profile web remove dsh-reconnect
 ```
 
 ### GitHub

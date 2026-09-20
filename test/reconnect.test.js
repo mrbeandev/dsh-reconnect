@@ -1,6 +1,37 @@
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { apply, Config } from "../src/index.js";
+
+const nativeSetTimeout = globalThis.setTimeout;
+const nativeClearTimeout = globalThis.clearTimeout;
+const nativeConsoleLog = console.log;
+const nativeConsoleWarn = console.warn;
+let timerId = 0;
+const pendingTimers = new Map();
+
+before(() => {
+  globalThis.setTimeout = (callback) => {
+    const id = ++timerId;
+    pendingTimers.set(id, callback);
+    queueMicrotask(() => {
+      const pending = pendingTimers.get(id);
+      if (!pending) return;
+      pendingTimers.delete(id);
+      pending();
+    });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => pendingTimers.delete(id);
+  console.log = () => {};
+  console.warn = () => {};
+});
+
+after(() => {
+  globalThis.setTimeout = nativeSetTimeout;
+  globalThis.clearTimeout = nativeClearTimeout;
+  console.log = nativeConsoleLog;
+  console.warn = nativeConsoleWarn;
+});
 
 function createHarness(config = {}) {
   const listeners = new Map();
@@ -254,6 +285,7 @@ describe("ReConnect retry policy", () => {
 
     for (const code of [
       "AUTH",
+      "auth",
       "INVALID_REPLAY_STATE",
       "UNSUPPORTED_OPTION",
       "UNSUPPORTED_REASONING_EFFORT",
@@ -261,6 +293,7 @@ describe("ReConnect retry policy", () => {
       assert.deepEqual(await harness.requestError(failure(code)), { kind: "next" });
     }
     assert.deepEqual(await harness.requestError(failure("QUOTA")), { kind: "next" });
+    assert.deepEqual(await harness.requestError(failure("quota")), { kind: "next" });
     assert.equal(harness.session.events.length, 0);
     await harness.dispose();
   });
@@ -275,6 +308,16 @@ describe("ReConnect retry policy", () => {
     await harness.dispose();
   });
 
+  it("normalizes transient error codes before choosing a retry policy", async () => {
+    const harness = createHarness({ maxDelayMs: 1000 });
+
+    assert.deepEqual(await harness.requestError(failure(" server ")), { kind: "retry" });
+    const event = harness.session.events.find((item) => item.type === "llm/retry");
+    assert.equal(event.data.failure.code, "SERVER");
+    assert.equal(event.data.policyKey, "reconnect-transient-v3");
+    await harness.dispose();
+  });
+
   it("honors Provider Retry-After without applying the local backoff cap", async () => {
     const harness = createHarness({ maxDelayMs: 1000 });
     const pending = harness.requestError(failure("SERVER", 120000));
@@ -282,6 +325,16 @@ describe("ReConnect retry policy", () => {
     assert.equal(event.data.delayMs, 120000);
     harness.signal.abort();
     assert.deepEqual(await pending, { kind: "next" });
+    await harness.dispose();
+  });
+
+  it("does not let a short Provider Retry-After reduce the local backoff", async () => {
+    const harness = createHarness({ maxDelayMs: 5000 });
+
+    assert.deepEqual(await harness.requestError(failure("SERVER", 1)), { kind: "retry" });
+    assert.deepEqual(await harness.requestError(failure("SERVER", 500)), { kind: "retry" });
+    const retries = harness.session.events.filter((item) => item.type === "llm/retry");
+    assert.deepEqual(retries.map((event) => event.data.delayMs), [1000, 2000]);
     await harness.dispose();
   });
 

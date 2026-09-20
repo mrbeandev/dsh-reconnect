@@ -62,6 +62,7 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
   const PRESET_SECONDS = [1, 2, 5, 10, 30, 60, 120]
   const MAX_SECONDS = 2147483
   const CUSTOM = '__custom__'
+  const SETTINGS_FIELDS = ['maxDelayMs', 'retryQuota', 'retryUnknown', 'unknownMaxRetries']
 
   function LabeledField(props) {
     return e('div', { style: fieldStyle },
@@ -74,6 +75,7 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
     const { useScope, scope } = props
     const snapshot = useScope((value) => value)
     const [value, setValue] = useState(null)
+    const [revision, setRevision] = useState(undefined)
     const [open, setOpen] = useState(false)
     const [selectedSeconds, setSelectedSeconds] = useState('60')
     const [customSeconds, setCustomSeconds] = useState('60')
@@ -86,13 +88,14 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
 
     const presetOf = (seconds) => PRESET_SECONDS.indexOf(seconds) !== -1 ? String(seconds) : CUSTOM
 
-    const applyConfig = (config) => {
+    const applyConfig = (config, nextRevision) => {
       const next = config && typeof config === 'object' ? config : {}
       const seconds = Math.max(1, Math.floor(Number(next.maxDelayMs ?? 60000) / 1000))
       const normalizedUnknownMax = Number.isSafeInteger(next.unknownMaxRetries) && next.unknownMaxRetries >= 0
         ? next.unknownMaxRetries
         : 3
       setValue(next)
+      setRevision(nextRevision)
       setSelectedSeconds(presetOf(seconds))
       setCustomSeconds(String(seconds))
       setRetryQuota(next.retryQuota === true)
@@ -102,9 +105,9 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
 
     useEffect(() => {
       if (snapshot.status !== 'ready' || dirty) return
-      applyConfig(snapshot.value)
+      applyConfig(snapshot.value, snapshot.revision)
       setFailed(false)
-    }, [snapshot.status, snapshot.value, dirty])
+    }, [snapshot.status, snapshot.value, snapshot.revision, dirty])
 
     const resolvedSeconds = () => {
       if (selectedSeconds === CUSTOM) {
@@ -132,17 +135,26 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
               : 3
           })(),
         }
-        for (const [field, fieldValue] of Object.entries(patch)) {
-          await scope.set(field, fieldValue)
+        const before = scope.getSnapshot()
+        if (before.revision !== revision) {
+          throw new Error('Settings changed after editing began; discard or retry your changes')
         }
-        const accepted = scope.getSnapshot().value
-        if (!accepted || accepted.maxDelayMs !== patch.maxDelayMs
-          || accepted.retryQuota !== patch.retryQuota
-          || accepted.retryUnknown !== patch.retryUnknown
-          || accepted.unknownMaxRetries !== patch.unknownMaxRetries) {
+        const ops = SETTINGS_FIELDS
+          .filter((field) => !Object.is(value && value[field], patch[field]))
+          .map((field) => ({ op: 'set', path: [field], value: patch[field] }))
+        if (ops.length > 0 && typeof scope.mutate === 'function') {
+          await scope.mutate(ops, revision)
+        } else {
+          for (const operation of ops) {
+            await scope.set(operation.path[0], operation.value)
+          }
+        }
+        const acceptedSnapshot = scope.getSnapshot()
+        const accepted = acceptedSnapshot.value
+        if (!accepted || ops.some((operation) => accepted[operation.path[0]] !== operation.value)) {
           throw new Error('The Host did not accept these settings')
         }
-        applyConfig(accepted)
+        applyConfig(accepted, acceptedSnapshot.revision)
         setDirty(false)
       } catch (error) {
         console.warn('[ReConnect] config save failed:', error)
@@ -156,10 +168,18 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
       setSaving(true)
       setFailed(false)
       try {
-        for (const field of ['maxDelayMs', 'retryQuota', 'retryUnknown', 'unknownMaxRetries']) {
-          await scope.unset(field)
+        const before = scope.getSnapshot()
+        const ops = SETTINGS_FIELDS.map((field) => ({ op: 'unset', path: [field] }))
+        if (typeof scope.mutate === 'function') {
+          await scope.mutate(ops, before.revision)
+        } else {
+          for (const field of SETTINGS_FIELDS) await scope.unset(field)
         }
-        applyConfig(scope.getSnapshot().value)
+        const accepted = scope.getSnapshot()
+        if (accepted.user && SETTINGS_FIELDS.some((field) => Object.hasOwn(accepted.user, field))) {
+          throw new Error('The Host did not restore the default settings')
+        }
+        applyConfig(accepted.value, accepted.revision)
         setDirty(false)
       } catch (error) {
         console.warn('[ReConnect] config reset failed:', error)
@@ -171,7 +191,7 @@ window.__ModuleLoader__.load({ id: 'dsh-reconnect', factory: (require) => {
 
     const discard = () => {
       if (!value) { setDirty(false); return }
-      applyConfig(value)
+      applyConfig(value, revision)
       setFailed(false)
       setDirty(false)
     }
