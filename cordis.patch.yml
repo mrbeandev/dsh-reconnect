@@ -1,0 +1,17 @@
+# dsh-reconnect bundle patch: insert the reconnect plugin into the profile.
+#
+# Host half (src/index.js):
+#   - listens to the `agent/request-error` waterfall for model request failures;
+#   - takes over recoverable failures after the built-in normal retry policy;
+#   - retries transient, model-availability, and unknown errors indefinitely by default;
+#   - uses exponential backoff from 1 second up to 60 seconds by default;
+#   - honors Provider Retry-After values as a minimum delay; and
+#   - cancels pending waits when the turn aborts or the plugin unloads.
+- insert:
+    - id: reconnect
+      name: 'dsh-reconnect'
+      config:
+        maxDelayMs: 60000
+        retryQuota: false
+        retryUnknown: true
+        unknownMaxRetries: 3

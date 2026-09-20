@@ -1,0 +1,70 @@
+{
+  "name": "dsh-reconnect",
+  "version": "2.0.0",
+  "description": "Safe model-request retry for DeepSeek Harness with exponential backoff, model-availability recovery, and configurable unknown-error limits.",
+  "author": "mrbeandev and contributors",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test",
+    "prepublishOnly": "npm test"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ],
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrbeandev/dsh-reconnect.git"
+  },
+  "homepage": "https://github.com/mrbeandev/dsh-reconnect#readme",
+  "bugs": {
+    "url": "https://github.com/mrbeandev/dsh-reconnect/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "*",
+    "@deepseek-ai/dsh-settings": "*",
+    "@deepseek-ai/schemastery": "*",
+    "react": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "retry",
+    "reconnect",
+    "llm"
+  ],
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "react": "^18.3.1"
+  }
+}
